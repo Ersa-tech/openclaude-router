@@ -46,16 +46,16 @@ function validateProviderEnvOrExit(): void {
     return
   }
 
-  const apiKey = process.env.OPENAI_API_KEY
-  const baseUrl = process.env.OPENAI_BASE_URL
+  const apiKey = process.env.OPENROUTER_API_KEY || process.env.OPENAI_API_KEY
+  const baseUrl = process.env.OPENROUTER_BASE_URL || process.env.OPENAI_BASE_URL || 'https://openrouter.ai/api/v1'
 
   if (apiKey === 'SUA_CHAVE') {
-    console.error('Invalid OPENAI_API_KEY: placeholder value SUA_CHAVE detected. Set a real key or unset for local providers.')
+    console.error('Invalid OPENROUTER_API_KEY/OPENAI_API_KEY: placeholder value SUA_CHAVE detected. Set a real key or unset for local providers.')
     process.exit(1)
   }
 
   if (!apiKey && !isLocalProviderUrl(baseUrl)) {
-    console.error('OPENAI_API_KEY is required when CLAUDE_CODE_USE_OPENAI=1 and OPENAI_BASE_URL is not local.')
+    console.error('OPENROUTER_API_KEY (or OPENAI_API_KEY alias) is required when provider mode is enabled and base URL is not local.')
     process.exit(1)
   }
 }

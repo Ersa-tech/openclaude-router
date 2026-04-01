@@ -37,7 +37,7 @@ export function getSmallFastModel(): ModelName {
   if (process.env.ANTHROPIC_SMALL_FAST_MODEL) return process.env.ANTHROPIC_SMALL_FAST_MODEL
   // For OpenAI provider, use OPENAI_MODEL or a sensible default
   if (getAPIProvider() === 'openai') {
-    return process.env.OPENAI_MODEL || 'gpt-4o-mini'
+    return process.env.OPENROUTER_MODEL || process.env.OPENAI_MODEL || 'openai/gpt-4o-mini'
   }
   return getDefaultHaikuModel()
 }
@@ -71,7 +71,7 @@ export function getUserSpecifiedModelSetting(): ModelSetting | undefined {
     specifiedModel = modelOverride
   } else {
     const settings = getSettings_DEPRECATED() || {}
-    specifiedModel = process.env.ANTHROPIC_MODEL || process.env.OPENAI_MODEL || settings.model || undefined
+    specifiedModel = process.env.ANTHROPIC_MODEL || process.env.OPENROUTER_MODEL || process.env.OPENAI_MODEL || settings.model || undefined
   }
 
   // Ignore the user-specified model if it's not in the availableModels allowlist.
@@ -113,7 +113,7 @@ export function getDefaultOpusModel(): ModelName {
   }
   // OpenAI provider: use user-specified model or default
   if (getAPIProvider() === 'openai') {
-    return process.env.OPENAI_MODEL || 'gpt-4o'
+    return process.env.OPENROUTER_MODEL || process.env.OPENAI_MODEL || 'openai/gpt-4o'
   }
   // 3P providers (Bedrock, Vertex, Foundry) — kept as a separate branch
   // even when values match, since 3P availability lags firstParty and
@@ -131,7 +131,7 @@ export function getDefaultSonnetModel(): ModelName {
   }
   // OpenAI provider
   if (getAPIProvider() === 'openai') {
-    return process.env.OPENAI_MODEL || 'gpt-4o'
+    return process.env.OPENROUTER_MODEL || process.env.OPENAI_MODEL || 'openai/gpt-4o'
   }
   // Default to Sonnet 4.5 for 3P since they may not have 4.6 yet
   if (getAPIProvider() !== 'firstParty') {
@@ -147,7 +147,7 @@ export function getDefaultHaikuModel(): ModelName {
   }
   // OpenAI provider
   if (getAPIProvider() === 'openai') {
-    return process.env.OPENAI_MODEL || 'gpt-4o-mini'
+    return process.env.OPENROUTER_MODEL || process.env.OPENAI_MODEL || 'openai/gpt-4o-mini'
   }
 
   // Haiku 4.5 is available on all platforms (first-party, Foundry, Bedrock, Vertex)

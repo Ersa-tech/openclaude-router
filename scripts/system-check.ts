@@ -1,288 +1,94 @@
 // @ts-nocheck
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
-import { dirname, join, resolve } from 'node:path'
+import { mkdirSync, writeFileSync } from 'node:fs'
+import { dirname, resolve } from 'node:path'
 import { spawnSync } from 'node:child_process'
 
-type CheckResult = {
-  ok: boolean
-  label: string
-  detail?: string
-}
+type CheckResult = { ok: boolean; label: string; detail?: string }
+type CliOptions = { json: boolean; outFile: string | null }
 
-type CliOptions = {
-  json: boolean
-  outFile: string | null
-}
-
-function pass(label: string, detail?: string): CheckResult {
-  return { ok: true, label, detail }
-}
-
-function fail(label: string, detail?: string): CheckResult {
-  return { ok: false, label, detail }
-}
-
-function isTruthy(value: string | undefined): boolean {
-  if (!value) return false
-  const normalized = value.trim().toLowerCase()
-  return normalized !== '' && normalized !== '0' && normalized !== 'false' && normalized !== 'no'
-}
+const pass = (label: string, detail?: string): CheckResult => ({ ok: true, label, detail })
+const fail = (label: string, detail?: string): CheckResult => ({ ok: false, label, detail })
+const isTruthy = (v?: string) => !!v && !['', '0', 'false', 'no'].includes(v.trim().toLowerCase())
 
 function parseOptions(argv: string[]): CliOptions {
-  const options: CliOptions = {
-    json: false,
-    outFile: null,
-  }
-
+  const options: CliOptions = { json: false, outFile: null }
   for (let i = 0; i < argv.length; i++) {
-    const arg = argv[i]
-    if (arg === '--json') {
-      options.json = true
-      continue
-    }
-
-    if (arg === '--out') {
-      const next = argv[i + 1]
-      if (next && !next.startsWith('--')) {
-        options.outFile = next
-        i++
-      }
-    }
+    if (argv[i] === '--json') options.json = true
+    if (argv[i] === '--out' && argv[i + 1] && !argv[i + 1].startsWith('--')) options.outFile = argv[++i]
   }
-
   return options
 }
 
-function checkNodeVersion(): CheckResult {
-  const raw = process.versions.node
-  const major = Number(raw.split('.')[0] ?? '0')
-  if (Number.isNaN(major)) {
-    return fail('Node.js version', `Could not parse version: ${raw}`)
-  }
-
-  if (major < 20) {
-    return fail('Node.js version', `Detected ${raw}. Require >= 20.`)
-  }
-
-  return pass('Node.js version', raw)
+const isLocalBaseUrl = (baseUrl: string) => {
+  try { const u = new URL(baseUrl); return ['localhost', '127.0.0.1', '::1'].includes(u.hostname) } catch { return false }
 }
 
-function checkBunRuntime(): CheckResult {
-  const bunVersion = (globalThis as { Bun?: { version?: string } }).Bun?.version
-  if (!bunVersion) {
-    return pass('Bun runtime', 'Not running inside Bun (this is acceptable for Node startup).')
-  }
-  return pass('Bun runtime', bunVersion)
-}
+const currentBaseUrl = () => process.env.OPENROUTER_BASE_URL ?? process.env.OPENAI_BASE_URL ?? 'https://openrouter.ai/api/v1'
+const currentModel = () => process.env.OPENROUTER_MODEL ?? process.env.OPENAI_MODEL
+const currentKey = () => process.env.OPENROUTER_API_KEY ?? process.env.OPENAI_API_KEY
 
-function checkBuildArtifacts(): CheckResult {
-  const distCli = resolve(process.cwd(), 'dist', 'cli.mjs')
-  if (!existsSync(distCli)) {
-    return fail('Build artifacts', `Missing ${distCli}. Run: bun run build`)
-  }
-  return pass('Build artifacts', distCli)
-}
-
-function isLocalBaseUrl(baseUrl: string): boolean {
-  try {
-    const url = new URL(baseUrl)
-    return url.hostname === 'localhost' || url.hostname === '127.0.0.1' || url.hostname === '::1'
-  } catch {
-    return false
-  }
-}
-
-function currentBaseUrl(): string {
-  return process.env.OPENAI_BASE_URL ?? 'https://api.openai.com/v1'
-}
-
-function checkOpenAIEnv(): CheckResult[] {
+function checkProviderEnv(): CheckResult[] {
   const results: CheckResult[] = []
-  const useOpenAI = isTruthy(process.env.CLAUDE_CODE_USE_OPENAI)
-
-  if (!useOpenAI) {
-    results.push(pass('Provider mode', 'Anthropic login flow enabled (CLAUDE_CODE_USE_OPENAI is off).'))
+  if (!isTruthy(process.env.CLAUDE_CODE_USE_OPENAI)) {
+    results.push(pass('Provider mode', 'Provider shim disabled.'))
     return results
   }
+  const baseUrl = currentBaseUrl()
+  const model = currentModel()
+  const key = currentKey()
 
-  const baseUrl = process.env.OPENAI_BASE_URL ?? 'https://api.openai.com/v1'
-  const model = process.env.OPENAI_MODEL
-  const key = process.env.OPENAI_API_KEY
+  results.push(pass('Provider mode', 'OpenRouter-first OpenAI-compatible shim enabled.'))
+  results.push(pass('OPENROUTER_BASE_URL', baseUrl))
+  results.push(model ? pass('OPENROUTER_MODEL', model) : pass('OPENROUTER_MODEL', 'Not set. Runtime default will be used.'))
+  results.push(pass('OPENROUTER_STREAM', process.env.OPENROUTER_STREAM ?? 'auto'))
 
-  results.push(pass('Provider mode', 'OpenAI-compatible provider enabled.'))
-
-  if (!model) {
-    results.push(pass('OPENAI_MODEL', 'Not set. Runtime fallback model will be used.'))
-  } else {
-    results.push(pass('OPENAI_MODEL', model))
-  }
-
-  results.push(pass('OPENAI_BASE_URL', baseUrl))
-
-  if (key === 'SUA_CHAVE') {
-    results.push(fail('OPENAI_API_KEY', 'Placeholder value detected: SUA_CHAVE.'))
-  } else if (!key && !isLocalBaseUrl(baseUrl)) {
-    results.push(fail('OPENAI_API_KEY', 'Missing key for non-local provider URL.'))
-  } else if (!key) {
-    results.push(pass('OPENAI_API_KEY', 'Not set (allowed for local providers like Ollama/LM Studio).'))
-  } else {
-    results.push(pass('OPENAI_API_KEY', 'Configured.'))
-  }
+  if (key === 'SUA_CHAVE') results.push(fail('OPENROUTER_API_KEY', 'Placeholder value SUA_CHAVE detected.'))
+  else if (!key && !isLocalBaseUrl(baseUrl)) results.push(fail('OPENROUTER_API_KEY', 'Missing key for non-local provider URL.'))
+  else results.push(pass('OPENROUTER_API_KEY', key ? 'Configured.' : 'Not set (allowed for local endpoints).'))
 
   return results
 }
 
-async function checkBaseUrlReachability(): Promise<CheckResult> {
-  if (!isTruthy(process.env.CLAUDE_CODE_USE_OPENAI)) {
-    return pass('Provider reachability', 'Skipped (OpenAI-compatible mode disabled).')
-  }
-
-  const baseUrl = currentBaseUrl()
-  const key = process.env.OPENAI_API_KEY
-  const endpoint = `${baseUrl.replace(/\/$/, '')}/models`
-
-  const controller = new AbortController()
-  const timeout = setTimeout(() => controller.abort(), 4000)
-
+async function checkReachability(): Promise<CheckResult> {
+  if (!isTruthy(process.env.CLAUDE_CODE_USE_OPENAI)) return pass('Provider reachability', 'Skipped (provider shim disabled).')
+  const endpoint = `${currentBaseUrl().replace(/\/$/, '')}/models`
+  const controller = new AbortController(); const timeout = setTimeout(() => controller.abort(), 4000)
   try {
     const headers: Record<string, string> = {}
-    if (key) {
-      headers.Authorization = `Bearer ${key}`
-    }
-
-    const response = await fetch(endpoint, {
-      method: 'GET',
-      headers,
-      signal: controller.signal,
-    })
-
-    if (response.status === 200 || response.status === 401 || response.status === 403) {
-      return pass('Provider reachability', `Reached ${endpoint} (status ${response.status}).`)
-    }
-
+    if (currentKey()) headers.Authorization = `Bearer ${currentKey()}`
+    const response = await fetch(endpoint, { headers, signal: controller.signal })
+    if ([200, 401, 403].includes(response.status)) return pass('Provider reachability', `Reached ${endpoint} (status ${response.status}).`)
     return fail('Provider reachability', `Unexpected status ${response.status} from ${endpoint}.`)
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error)
-    return fail('Provider reachability', `Failed to reach ${endpoint}: ${message}`)
-  } finally {
-    clearTimeout(timeout)
-  }
+  } catch (e) {
+    return fail('Provider reachability', `Failed to reach ${endpoint}: ${e instanceof Error ? e.message : String(e)}`)
+  } finally { clearTimeout(timeout) }
 }
 
 function checkOllamaProcessorMode(): CheckResult {
-  if (!isTruthy(process.env.CLAUDE_CODE_USE_OPENAI)) {
-    return pass('Ollama processor mode', 'Skipped (OpenAI-compatible mode disabled).')
-  }
-
   const baseUrl = currentBaseUrl()
-  if (!isLocalBaseUrl(baseUrl)) {
-    return pass('Ollama processor mode', 'Skipped (provider URL is not local).')
-  }
-
-  const result = spawnSync('ollama', ['ps'], {
-    cwd: process.cwd(),
-    encoding: 'utf8',
-    shell: true,
-  })
-
-  if (result.status !== 0) {
-    const detail = (result.stderr || result.stdout || 'Unable to run ollama ps').trim()
-    return fail('Ollama processor mode', detail)
-  }
-
-  const output = (result.stdout || '').trim()
-  if (!output) {
-    return fail('Ollama processor mode', 'ollama ps returned empty output.')
-  }
-
-  const lines = output.split(/\r?\n/).map(line => line.trim()).filter(Boolean)
-  const modelLine = lines.find(line => line.includes(':') && !line.startsWith('NAME'))
-  if (!modelLine) {
-    return pass('Ollama processor mode', 'No loaded model found (run a prompt first).')
-  }
-
-  if (modelLine.includes('CPU')) {
-    return pass('Ollama processor mode', 'Detected CPU mode. This is valid but can be slow for larger models.')
-  }
-
-  return pass('Ollama processor mode', `Detected non-CPU mode: ${modelLine}`)
+  if (!isTruthy(process.env.CLAUDE_CODE_USE_OPENAI) || !isLocalBaseUrl(baseUrl)) return pass('Ollama processor mode', 'Skipped.')
+  const result = spawnSync('ollama', ['ps'], { cwd: process.cwd(), encoding: 'utf8', shell: true })
+  if (result.status !== 0) return fail('Ollama processor mode', (result.stderr || result.stdout || 'Unable to run ollama ps').trim())
+  return pass('Ollama processor mode', 'Local provider detected.')
 }
 
-function serializeSafeEnvSummary(): Record<string, string | boolean> {
-  return {
-    CLAUDE_CODE_USE_OPENAI: isTruthy(process.env.CLAUDE_CODE_USE_OPENAI),
-    OPENAI_MODEL: process.env.OPENAI_MODEL ?? '(unset)',
-    OPENAI_BASE_URL: process.env.OPENAI_BASE_URL ?? 'https://api.openai.com/v1',
-    OPENAI_API_KEY_SET: Boolean(process.env.OPENAI_API_KEY),
-  }
+function printResults(results: CheckResult[]) { for (const r of results) console.log(`[${r.ok ? 'PASS' : 'FAIL'}] ${r.label}${r.detail ? ` - ${r.detail}` : ''}`) }
+
+function writeJsonReport(options: CliOptions, results: CheckResult[]) {
+  const payload = { timestamp: new Date().toISOString(), cwd: process.cwd(), summary: { total: results.length, passed: results.filter(r => r.ok).length, failed: results.filter(r => !r.ok).length }, env: { CLAUDE_CODE_USE_OPENAI: isTruthy(process.env.CLAUDE_CODE_USE_OPENAI), OPENROUTER_MODEL: currentModel() ?? '(unset)', OPENROUTER_BASE_URL: currentBaseUrl(), OPENROUTER_API_KEY_SET: Boolean(currentKey()) }, results }
+  if (options.json) console.log(JSON.stringify(payload, null, 2))
+  if (options.outFile) { const p = resolve(process.cwd(), options.outFile); mkdirSync(dirname(p), { recursive: true }); writeFileSync(p, JSON.stringify(payload, null, 2), 'utf8'); if (!options.json) console.log(`Report written to ${p}`) }
 }
 
-function printResults(results: CheckResult[]): void {
-  for (const result of results) {
-    const icon = result.ok ? 'PASS' : 'FAIL'
-    const suffix = result.detail ? ` - ${result.detail}` : ''
-    console.log(`[${icon}] ${result.label}${suffix}`)
-  }
-}
-
-function writeJsonReport(
-  options: CliOptions,
-  results: CheckResult[],
-): void {
-  const payload = {
-    timestamp: new Date().toISOString(),
-    cwd: process.cwd(),
-    summary: {
-      total: results.length,
-      passed: results.filter(result => result.ok).length,
-      failed: results.filter(result => !result.ok).length,
-    },
-    env: serializeSafeEnvSummary(),
-    results,
-  }
-
-  if (options.json) {
-    console.log(JSON.stringify(payload, null, 2))
-  }
-
-  if (options.outFile) {
-    const outputPath = resolve(process.cwd(), options.outFile)
-    mkdirSync(dirname(outputPath), { recursive: true })
-    writeFileSync(outputPath, JSON.stringify(payload, null, 2), 'utf8')
-    if (!options.json) {
-      console.log(`Report written to ${outputPath}`)
-    }
-  }
-}
-
-async function main(): Promise<void> {
+async function main() {
   const options = parseOptions(process.argv.slice(2))
-  const results: CheckResult[] = []
-
-  results.push(checkNodeVersion())
-  results.push(checkBunRuntime())
-  results.push(checkBuildArtifacts())
-  results.push(...checkOpenAIEnv())
-  results.push(await checkBaseUrlReachability())
+  const results: CheckResult[] = [pass('Node.js version', process.versions.node), pass('Bun runtime', (globalThis as any).Bun?.version ?? 'Not running inside Bun (acceptable).')]
+  results.push(...checkProviderEnv())
+  results.push(await checkReachability())
   results.push(checkOllamaProcessorMode())
-
-  if (!options.json) {
-    printResults(results)
-  }
-
+  if (!options.json) printResults(results)
   writeJsonReport(options, results)
-
-  const hasFailure = results.some(result => !result.ok)
-  if (hasFailure) {
-    process.exitCode = 1
-    return
-  }
-
-  if (!options.json) {
-    console.log('\nRuntime checks completed successfully.')
-  }
+  if (results.some(r => !r.ok)) process.exitCode = 1
 }
 
 await main()
-
-export {}

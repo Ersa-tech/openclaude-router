@@ -1,0 +1,7 @@
+{
+  "extends": "./tsconfig.json",
+  "include": [
+    "src/services/api/openaiShim.ts",
+    "src/services/api/openrouterConfig.ts"
+  ]
+}
