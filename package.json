@@ -1,7 +1,7 @@
 {
   "name": "@gitlawb/openclaude",
   "version": "0.1.2",
-  "description": "Claude Code opened to any LLM — OpenAI, Gemini, DeepSeek, Ollama, and 200+ models",
+  "description": "Claude Code opened to any LLM \u2014 OpenAI, Gemini, DeepSeek, Ollama, and 200+ models",
   "type": "module",
   "bin": {
     "openclaude": "./bin/openclaude"
@@ -16,7 +16,7 @@
     "dev": "bun run build && node dist/cli.mjs",
     "dev:profile": "bun run scripts/provider-launch.ts",
     "dev:profile:fast": "bun run scripts/provider-launch.ts auto --fast --bare",
-    "dev:openai": "bun run scripts/provider-launch.ts openai",
+    "dev:openai": "bun run scripts/provider-launch.ts balanced",
     "dev:ollama": "bun run scripts/provider-launch.ts ollama",
     "dev:ollama:fast": "bun run scripts/provider-launch.ts ollama --fast --bare",
     "profile:init": "bun run scripts/provider-bootstrap.ts",
@@ -25,14 +25,18 @@
     "dev:fast": "bun run profile:fast && bun run dev:ollama:fast",
     "dev:code": "bun run profile:code && bun run dev:profile",
     "start": "node dist/cli.mjs",
-    "typecheck": "tsc --noEmit",
-    "smoke": "bun run build && node dist/cli.mjs --version",
+    "typecheck": "tsc --noEmit -p tsconfig.provider.json",
+    "smoke": "bun run doctor:runtime",
     "doctor:runtime": "bun run scripts/system-check.ts",
     "doctor:runtime:json": "bun run scripts/system-check.ts --json",
     "doctor:report": "bun run scripts/system-check.ts --out reports/doctor-runtime.json",
     "hardening:check": "bun run smoke && bun run doctor:runtime",
     "hardening:strict": "bun run typecheck && bun run hardening:check",
-    "prepack": "npm run build"
+    "prepack": "npm run build",
+    "dev:openrouter": "bun run scripts/provider-launch.ts balanced",
+    "dev:free": "bun run scripts/provider-launch.ts free",
+    "dev:reliable": "bun run scripts/provider-launch.ts reliable",
+    "dev:cheap": "bun run scripts/provider-launch.ts cheap"
   },
   "dependencies": {
     "@alcalzone/ansi-tokenize": "^0.3.0",
